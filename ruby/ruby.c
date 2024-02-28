@@ -21,6 +21,15 @@ static VALUE STATETOVALUE(lua_State* L) {
   return LL2NUM((long long)L);
 }
 
+int f_ruby_throw_error(lua_State* L) {
+  VALUE err = rb_errinfo();
+  VALUE str = rb_funcall(err, rb_intern("to_s"), 0);
+  lua_pushfstring(L, "error executing ruby code: %s", StringValueCStr(str));
+  rb_set_errinfo(Qnil);
+  return lua_error(L);
+}
+
+
 
 typedef struct s_ruby_function_lua {
   lua_State* L;
@@ -64,10 +73,16 @@ VALUE f_ruby_lua_function_call(int argc, VALUE* argv, VALUE self) {
   TypedData_Get_Struct(self, s_ruby_function_lua, &f_ruby_lua_function_type, data);
   lua_State* L = data->L;
   lua_rawgeti(L, LUA_REGISTRYINDEX, data->reference);
-  for (int i = 0; i < argc; ++i) {
+  for (int i = 0; i < argc; ++i)
     f_ruby_ruby_to_lua(argv[i], L);
+  if (lua_pcall(L, argc, 1, 0)) {
+    char buffer[1024];
+    strncpy(buffer, lua_tostring(L, -1), sizeof(buffer));
+    buffer[1023] = 0;
+    lua_pop(L, 2);
+    rb_raise(rb_eRuntimeError, "error calling lua function: %s", buffer);
+    return Qnil;
   }
-  lua_call(L, 1, 1);
   VALUE ret = f_ruby_lua_to_ruby(L, -1);
   lua_pop(L, 1);
   return ret;
@@ -111,28 +126,43 @@ VALUE f_ruby_lua_table_initialize(VALUE self, VALUE state, VALUE func) {
   return self;
 }
 
+const char* f_ruby_to_s(VALUE value) {
+  switch (TYPE(value)) {
+    case T_STRING:
+      return StringValueCStr(value);
+    case T_SYMBOL:
+      return rb_id2name(SYM2ID(value));
+    default:
+      return NULL;
+  }
+}
+
 
 VALUE f_ruby_lua_table_method_missing(int argc, VALUE* argv, VALUE self) {
   s_ruby_table_lua* data;
   TypedData_Get_Struct(self, s_ruby_table_lua, &f_ruby_lua_table_type, data);
   lua_State* L = data->L;
   lua_rawgeti(L, LUA_REGISTRYINDEX, data->reference);
-  const char* field = StringValueCStr(argv[0]);
   if (argc == 1) {
     // GET
+    const char* field = f_ruby_to_s(argv[0]);
     lua_getfield(L, -1, field);
     VALUE ret = f_ruby_lua_to_ruby(L, -1);
     lua_pop(L, 1);
     return ret;
   } else if (argc == 2) {
     // SET
+    const char* field = f_ruby_to_s(argv[0]);
     int len = strlen(field);
     if (len == 0 || field[len-1] != '=')
-      rb_exc_raise(rb_eRuntimeError);
+      rb_raise(rb_eRuntimeError, "invalid assignment field %s", field);
+    lua_pushlstring(L, field, len - 1);
     f_ruby_ruby_to_lua(argv[1], L);
-    lua_setfield(L, -2, field);
-  } else
-    rb_exc_raise(rb_eRuntimeError);
+    lua_settable(L, -3);
+    lua_pop(L, 1);
+  } else {
+    rb_raise(rb_eRuntimeError, "invalid method missing call");
+  }
   return Qnil;
 }
 
@@ -144,6 +174,10 @@ int f_ruby_ruby_object_get(lua_State* L) {
     case T_OBJECT: {
       const char* field = luaL_checkstring(L, 2);
       ret = rb_iv_get(self, field);
+    } break;
+    case T_ARRAY: {
+      int i = luaL_checkinteger(L, 2);
+      ret = rb_ary_entry(self, i - 1);
     } break;
     case T_HASH: {
       VALUE field = f_ruby_lua_to_ruby(L, 2);
@@ -166,6 +200,10 @@ int f_ruby_ruby_object_set(lua_State* L) {
       const char* field = luaL_checkstring(L, 2);
       rb_iv_set(self, field, val);
     } break;
+    case T_ARRAY: {
+      int i = luaL_checkinteger(L, 2);
+      rb_ary_store(self, i - 1, val);
+    } break;
     case T_HASH: {
       VALUE field = f_ruby_lua_to_ruby(L, 2);
       rb_hash_aset(self, field, val);
@@ -175,21 +213,35 @@ int f_ruby_ruby_object_set(lua_State* L) {
   return 0;
 }
 
-int f_ruby_ruby_object_call(lua_State* L) {
-  lua_rawgeti(L, 1, 1);
-  VALUE self = (VALUE)lua_touserdata(L, -1);
-  int argc = lua_gettop(L) - 1;
+VALUE f_ruby_ruby_object_internal_call(VALUE array) {
+  VALUE self = rb_ary_shift(array);
+  int argc = RARRAY_LEN(array);
   VALUE argv[argc];
   for (int i = 0; i < argc; ++i)
-    argv[i] = f_ruby_lua_to_ruby(L, i+1);
-  VALUE ret = rb_funcallv(self,  rb_intern("call"), argc, argv);
+    argv[i] = rb_ary_shift(array);
+  return rb_funcallv(self, rb_intern("call"), argc, argv);
+}
+
+int f_ruby_ruby_object_call(lua_State* L) {
+  int argc = lua_gettop(L) - 1;
+  lua_rawgeti(L, 1, 1);
+  VALUE self = (VALUE)lua_touserdata(L, -1);
+  VALUE argv[argc + 1];
+  argv[0] = self;
+  for (int i = 0; i < argc; ++i)
+    argv[i + 1] = f_ruby_lua_to_ruby(L, i+2);
+  VALUE to_pass = rb_ary_new4(argc + 1, argv);
+  int state;
+  VALUE ret = rb_protect(f_ruby_ruby_object_internal_call, to_pass, &state);
+  if (state)
+    return f_ruby_throw_error(L);
   f_ruby_ruby_to_lua(ret, L);
   return 1;
 }
 
 
 VALUE f_ruby_require(VALUE self, VALUE path) {
-  lua_State* L = VALUETOSTATE(rb_iv_get(self, "@state"));
+  lua_State* L = VALUETOSTATE(rb_cv_get(self, "@@state"));
   lua_getglobal(L, "require");
   f_ruby_ruby_to_lua(path, L);
   lua_call(L, 1, 1);
@@ -215,13 +267,8 @@ void f_ruby_register_types(lua_State* L) {
   rb_define_method(cLuaTable, "method_missing", f_ruby_lua_table_method_missing,-1);
 
   cLua = rb_define_class("Lua", rb_cObject);
-  rb_define_method(cLua, "initialize", f_ruby_lua_initialize, 1);
-  rb_define_method(cLua, "require", f_ruby_require, 1);
-
-  VALUE lua = rb_obj_alloc(cLua);
-  VALUE argv = STATETOVALUE(L);
-  rb_obj_call_init(lua, 1, &argv);
-  rb_gv_set("$lua", lua);
+  rb_define_singleton_method(cLua, "require", f_ruby_require, 1);
+  rb_cv_set(cLua, "@@state", STATETOVALUE(L));
 }
 
 
@@ -243,6 +290,8 @@ void f_ruby_ruby_to_lua(VALUE value, lua_State* L) {
     break;
     case T_BIGNUM: lua_pushinteger(L, NUM2LL(value)); break;
     case T_OBJECT:
+    case T_DATA:
+    case T_ARRAY:
     case T_HASH: {
       if (value == Qtrue || value == Qfalse) {
         lua_pushboolean(L, value == Qtrue ? 1 : 0);
@@ -254,7 +303,6 @@ void f_ruby_ruby_to_lua(VALUE value, lua_State* L) {
       }
     } break;
     default:
-      fprintf(stderr, "SIGH: %d\n", TYPE(value));
       lua_pushlightuserdata(L, (void*)value);
     break;
   }
@@ -292,7 +340,7 @@ int f_ruby_eval(lua_State* L) {
   int state;
   VALUE result = rb_eval_string_protect(luaL_checkstring(L, -1), &state);
   if (state)
-    return luaL_error(L, "error executing ruby code");
+    return f_ruby_throw_error(L);
   f_ruby_ruby_to_lua(result, L);
   return 1;
 }
@@ -314,7 +362,7 @@ int f_ruby_exec(lua_State* L) {
   VALUE result = rb_eval_string_protect(buffer, &state);
   free(buffer);
   if (state)
-    return luaL_error(L, "error executing ruby code");
+    return f_ruby_throw_error(L);
   f_ruby_ruby_to_lua(result, L);
   return 1;
 }
