@@ -1,0 +1,17 @@
+{
+  "addons": [
+    {
+      "id": "ruby",
+      "type": "library",
+      "name": "Ruby Interpeter",
+      "description": "Base ruby interpreter.",
+      "files": []
+    },
+    {
+      "id": "ruby-loader",
+      "name": "Ruby Loader",
+      "description": "Automatically loads *.rb files as plugins for lite, and allows you to require *.rb files.",
+      "path": "ruby/ruby.lua"
+    }
+  ]
+}
