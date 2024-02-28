@@ -28,49 +28,49 @@ typedef struct s_ruby_function_lua {
 } s_ruby_function_lua;
 
 size_t f_ruby_lua_function_size(const void* data) {
-	return sizeof(s_ruby_function_lua);
+  return sizeof(s_ruby_function_lua);
 }
 void f_ruby_lua_function_free(void* data) {
-	free(data);
+  free(data);
 }
 
 
 static const rb_data_type_t f_ruby_lua_function_type = {
-	.wrap_struct_name = "lua_function",
-	.function = {
-		.dmark = NULL,
-		.dfree = f_ruby_lua_function_free,
-		.dsize = f_ruby_lua_function_size
-	},
-	.data = NULL,
-	.flags = RUBY_TYPED_FREE_IMMEDIATELY,
+  .wrap_struct_name = "lua_function",
+  .function = {
+    .dmark = NULL,
+    .dfree = f_ruby_lua_function_free,
+    .dsize = f_ruby_lua_function_size
+  },
+  .data = NULL,
+  .flags = RUBY_TYPED_FREE_IMMEDIATELY,
 };
 
 VALUE f_ruby_lua_function_alloc(VALUE self) {
-	s_ruby_function_lua* data = malloc(sizeof(s_ruby_function_lua));
-	return TypedData_Wrap_Struct(self, &f_ruby_lua_function_type, data);
+  s_ruby_function_lua* data = malloc(sizeof(s_ruby_function_lua));
+  return TypedData_Wrap_Struct(self, &f_ruby_lua_function_type, data);
 }
 
 VALUE f_ruby_lua_function_initialize(VALUE self, VALUE state, VALUE func) {
-	s_ruby_function_lua* data;
-	TypedData_Get_Struct(self, s_ruby_function_lua, &f_ruby_lua_function_type, data);
-	data->L = VALUETOSTATE(state);
-	data->reference = NUM2INT(func);
-	return self;
+  s_ruby_function_lua* data;
+  TypedData_Get_Struct(self, s_ruby_function_lua, &f_ruby_lua_function_type, data);
+  data->L = VALUETOSTATE(state);
+  data->reference = NUM2INT(func);
+  return self;
 }
 
 VALUE f_ruby_lua_function_call(int argc, VALUE* argv, VALUE self) {
   s_ruby_function_lua* data;
-	TypedData_Get_Struct(self, s_ruby_function_lua, &f_ruby_lua_function_type, data);
-	lua_State* L = data->L;
-	lua_rawgeti(L, LUA_REGISTRYINDEX, data->reference);
-	for (int i = 0; i < argc; ++i) {
+  TypedData_Get_Struct(self, s_ruby_function_lua, &f_ruby_lua_function_type, data);
+  lua_State* L = data->L;
+  lua_rawgeti(L, LUA_REGISTRYINDEX, data->reference);
+  for (int i = 0; i < argc; ++i) {
     f_ruby_ruby_to_lua(argv[i], L);
-	}
-	lua_call(L, 1, 1);
-	VALUE ret = f_ruby_lua_to_ruby(L, -1);
-	lua_pop(L, 1);
-	return ret;
+  }
+  lua_call(L, 1, 1);
+  VALUE ret = f_ruby_lua_to_ruby(L, -1);
+  lua_pop(L, 1);
+  return ret;
 }
 
 
@@ -80,60 +80,60 @@ typedef struct s_ruby_table_lua {
 } s_ruby_table_lua;
 
 size_t f_ruby_lua_table_size(const void* data) {
-	return sizeof(s_ruby_table_lua);
+  return sizeof(s_ruby_table_lua);
 }
 void f_ruby_lua_table_free(void* data) {
-	free(data);
+  free(data);
 }
 
 static const rb_data_type_t f_ruby_lua_table_type = {
-	.wrap_struct_name = "lua_table",
-	.function = {
-		.dmark = NULL,
-		.dfree = f_ruby_lua_table_free,
-		.dsize = f_ruby_lua_table_size
-	},
-	.data = NULL,
-	.flags = RUBY_TYPED_FREE_IMMEDIATELY,
+  .wrap_struct_name = "lua_table",
+  .function = {
+    .dmark = NULL,
+    .dfree = f_ruby_lua_table_free,
+    .dsize = f_ruby_lua_table_size
+  },
+  .data = NULL,
+  .flags = RUBY_TYPED_FREE_IMMEDIATELY,
 };
 
 
 VALUE f_ruby_lua_table_alloc(VALUE self) {
-	s_ruby_table_lua* data = malloc(sizeof(s_ruby_table_lua));
-	return TypedData_Wrap_Struct(self, &f_ruby_lua_table_type, data);
+  s_ruby_table_lua* data = malloc(sizeof(s_ruby_table_lua));
+  return TypedData_Wrap_Struct(self, &f_ruby_lua_table_type, data);
 }
 
 VALUE f_ruby_lua_table_initialize(VALUE self, VALUE state, VALUE func) {
-	s_ruby_table_lua* data;
-	TypedData_Get_Struct(self, s_ruby_table_lua, &f_ruby_lua_table_type, data);
-	data->L = VALUETOSTATE(state);
-	data->reference = NUM2INT(func);
-	return self;
+  s_ruby_table_lua* data;
+  TypedData_Get_Struct(self, s_ruby_table_lua, &f_ruby_lua_table_type, data);
+  data->L = VALUETOSTATE(state);
+  data->reference = NUM2INT(func);
+  return self;
 }
 
 
 VALUE f_ruby_lua_table_method_missing(int argc, VALUE* argv, VALUE self) {
-	s_ruby_table_lua* data;
-	TypedData_Get_Struct(self, s_ruby_table_lua, &f_ruby_lua_table_type, data);
-	lua_State* L = data->L;
-	lua_rawgeti(L, LUA_REGISTRYINDEX, data->reference);
+  s_ruby_table_lua* data;
+  TypedData_Get_Struct(self, s_ruby_table_lua, &f_ruby_lua_table_type, data);
+  lua_State* L = data->L;
+  lua_rawgeti(L, LUA_REGISTRYINDEX, data->reference);
   const char* field = StringValueCStr(argv[0]);
-	if (argc == 1) {
+  if (argc == 1) {
     // GET
     lua_getfield(L, -1, field);
     VALUE ret = f_ruby_lua_to_ruby(L, -1);
     lua_pop(L, 1);
     return ret;
-	} else if (argc == 2) {
+  } else if (argc == 2) {
     // SET
     int len = strlen(field);
     if (len == 0 || field[len-1] != '=')
       rb_exc_raise(rb_eRuntimeError);
     f_ruby_ruby_to_lua(argv[1], L);
     lua_setfield(L, -2, field);
-	} else
+  } else
     rb_exc_raise(rb_eRuntimeError);
-	return Qnil;
+  return Qnil;
 }
 
 int f_ruby_ruby_object_get(lua_State* L) {
@@ -205,17 +205,17 @@ VALUE f_ruby_lua_initialize(VALUE self, VALUE state) {
 
 void f_ruby_register_types(lua_State* L) {
   cLuaFunction = rb_define_class("LuaFunction", rb_cObject);
-	rb_define_alloc_func(cLuaFunction, f_ruby_lua_function_alloc);
-	rb_define_method(cLuaFunction, "initialize", f_ruby_lua_function_initialize, 2);
-	rb_define_method(cLuaFunction, "call", f_ruby_lua_function_call, -1);
+  rb_define_alloc_func(cLuaFunction, f_ruby_lua_function_alloc);
+  rb_define_method(cLuaFunction, "initialize", f_ruby_lua_function_initialize, 2);
+  rb_define_method(cLuaFunction, "call", f_ruby_lua_function_call, -1);
 
   cLuaTable = rb_define_class("LuaTable", rb_cObject);
   rb_define_alloc_func(cLuaTable, f_ruby_lua_table_alloc);
-	rb_define_method(cLuaTable, "initialize", f_ruby_lua_table_initialize, 2);
-	rb_define_method(cLuaTable, "method_missing", f_ruby_lua_table_method_missing,-1);
+  rb_define_method(cLuaTable, "initialize", f_ruby_lua_table_initialize, 2);
+  rb_define_method(cLuaTable, "method_missing", f_ruby_lua_table_method_missing,-1);
 
   cLua = rb_define_class("Lua", rb_cObject);
-	rb_define_method(cLua, "initialize", f_ruby_lua_initialize, 1);
+  rb_define_method(cLua, "initialize", f_ruby_lua_initialize, 1);
   rb_define_method(cLua, "require", f_ruby_require, 1);
 
   VALUE lua = rb_obj_alloc(cLua);
