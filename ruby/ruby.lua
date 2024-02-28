@@ -1,10 +1,12 @@
--- modversion:3
+-- mod-version:3
 
 local ruby = require "libraries.ruby"
 local core = require "core"
+local config = require "core.config"
 
 table.insert(package.searchers, function(modname)
-  local path, err = package.searchpath(modname, package.path:gsub("%.lua$", "%.rb"))
+  local ruby_paths = package.path:gsub("%.lua", ".rb")
+  local path, err = package.searchpath(modname, ruby_paths)
   if not path then return err end
   return ruby.exec, path
 end)
@@ -27,6 +29,7 @@ local function get_plugin_details(filename)
   for line in f:lines() do
     if not version_match then
       local _major, _minor, _patch = mod_version_regex:match(line)
+      
       if _major then
         _major = tonumber(_major) or 0
         _minor = tonumber(_minor) or 0
@@ -44,7 +47,7 @@ local function get_plugin_details(filename)
     end
 
     if not priority then
-      priority = line:match('%-%-.*%f[%a]priority%s*:%s*(%d+)')
+      priority = line:match('%#.*%f[%a]priority%s*:%s*(%d+)')
       if priority then priority = tonumber(priority) end
     end
 
